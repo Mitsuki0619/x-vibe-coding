@@ -1,0 +1,155 @@
+# GraphQL Schema for SNS Application
+
+# Scalars
+scalar Time
+
+# User型
+type User {
+  id: ID!
+  username: String!
+  email: String!
+  name: String!
+  bio: String
+  avatar: String
+  createdAt: Time!
+  updatedAt: Time!
+  
+  # Computed fields
+  posts: [Post!]!
+  followers: [User!]!
+  following: [User!]!
+  followerCount: Int!
+  followingCount: Int!
+  postCount: Int!
+  
+  # Current user context
+  isFollowing: Boolean! # 現在のユーザーがこのユーザーをフォローしているか
+}
+
+# Post型
+type Post {
+  id: ID!
+  content: String!
+  authorId: ID!
+  parentId: ID
+  createdAt: Time!
+  updatedAt: Time!
+  
+  # Relations
+  author: User!
+  parent: Post
+  replies: [Post!]!
+  likes: [Like!]!
+  
+  # Computed fields
+  likeCount: Int!
+  replyCount: Int!
+  
+  # Current user context
+  isLikedByUser: Boolean! # 現在のユーザーがいいねしているか
+}
+
+# Like型
+type Like {
+  id: ID!
+  userId: ID!
+  postId: ID!
+  createdAt: Time!
+  
+  # Relations
+  user: User!
+  post: Post!
+}
+
+# Follow型
+type Follow {
+  id: ID!
+  followerId: ID!
+  followeeId: ID!
+  createdAt: Time!
+  
+  # Relations
+  follower: User!
+  followee: User!
+}
+
+# Input Types for Mutations
+input RegisterInput {
+  username: String!
+  email: String!
+  password: String!
+  name: String!
+  bio: String
+}
+
+input LoginInput {
+  email: String!
+  password: String!
+}
+
+input CreatePostInput {
+  content: String!
+  parentId: ID # リプライの場合
+}
+
+input UpdateProfileInput {
+  name: String
+  bio: String
+  avatar: String
+}
+
+# Auth Response
+type AuthResponse {
+  token: String!
+  user: User!
+}
+
+# Timeline for posts
+type Timeline {
+  posts: [Post!]!
+  hasNextPage: Boolean!
+  cursor: String
+}
+
+# Query type
+type Query {
+  # Current user info
+  me: User
+  
+  # User queries
+  user(id: ID!): User
+  users(search: String, limit: Int, offset: Int): [User!]!
+  
+  # Post queries
+  post(id: ID!): Post
+  posts(authorId: ID, limit: Int, offset: Int): [Post!]!
+  
+  # Timeline queries
+  timeline(limit: Int, cursor: String): Timeline!
+  
+  # Follow queries
+  followers(userId: ID!, limit: Int, offset: Int): [User!]!
+  following(userId: ID!, limit: Int, offset: Int): [User!]!
+}
+
+# Mutation type
+type Mutation {
+  # Authentication
+  register(input: RegisterInput!): AuthResponse!
+  login(input: LoginInput!): AuthResponse!
+  
+  # Profile management
+  updateProfile(input: UpdateProfileInput!): User!
+  
+  # Post operations
+  createPost(input: CreatePostInput!): Post!
+  deletePost(id: ID!): Boolean!
+  
+  # Like operations
+  likePost(postId: ID!): Post!
+  unlikePost(postId: ID!): Post!
+  
+  # Follow operations
+  followUser(userId: ID!): User!
+  unfollowUser(userId: ID!): User!
+}

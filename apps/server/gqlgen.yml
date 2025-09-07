@@ -1,0 +1,27 @@
+schema:
+  - internal/graph/schema.graphql
+
+exec:
+  filename: internal/graph/generated/generated.go
+  package: generated
+
+model:
+  filename: internal/graph/model/models_gen.go
+  package: model
+
+resolver:
+  layout: follow-schema
+  dir: internal/graph
+  package: graph
+
+models:
+  User:
+    model: sns-server/internal/models.User
+  Post:
+    model: sns-server/internal/models.Post
+  Like:
+    model: sns-server/internal/models.Like
+  Follow:
+    model: sns-server/internal/models.Follow
+  Time:
+    model: time.Time
