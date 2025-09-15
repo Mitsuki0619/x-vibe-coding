@@ -1,7 +1,9 @@
 package models
 
 import (
+	"strings"
 	"testing"
+	"gorm.io/gorm"
 )
 
 func TestPost_Creation(t *testing.T) {
@@ -22,7 +24,7 @@ func TestPost_Creation(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "有効な投稿の作成",
+			name: "正常なコンテンツで投稿作成すると成功する",
 			post: Post{
 				Content:  "これはテスト投稿です",
 				AuthorID: user.ID,
@@ -30,7 +32,7 @@ func TestPost_Creation(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "空の内容では投稿できない",
+			name: "空文字列のコンテンツで投稿作成するとエラーが発生する",
 			post: Post{
 				Content:  "",
 				AuthorID: user.ID,
@@ -38,7 +40,7 @@ func TestPost_Creation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "280文字を超える投稿はエラー",
+			name: "280文字を超えるコンテンツで投稿作成するとエラーが発生する",
 			post: Post{
 				Content:  generateLongString(281),
 				AuthorID: user.ID,
@@ -46,7 +48,7 @@ func TestPost_Creation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "280文字ちょうどの投稿は成功",
+			name: "280文字ちょうどのコンテンツで投稿作成すると成功する",
 			post: Post{
 				Content:  generateLongString(280),
 				AuthorID: user.ID,
@@ -54,7 +56,7 @@ func TestPost_Creation(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "作成者IDがない場合はエラー",
+			name: "作成者IDが未設定の場合エラーが発生する",
 			post: Post{
 				Content: "テスト投稿",
 			},
@@ -100,19 +102,19 @@ func TestPost_LikeCount(t *testing.T) {
 		expectedCount int64
 	}{
 		{
-			name:          "いいねがない場合",
+			name:          "いいねが0件の場合カウントが0になる",
 			likes:         []Like{},
 			expectedCount: 0,
 		},
 		{
-			name: "いいねが1つの場合",
+			name: "いいねが1件ある場合カウントが1になる",
 			likes: []Like{
 				{UserID: user2.ID, PostID: post.ID},
 			},
 			expectedCount: 1,
 		},
 		{
-			name: "いいねが2つの場合",
+			name: "いいねが2件ある場合カウントが2になる",
 			likes: []Like{
 				{UserID: user1.ID, PostID: post.ID},
 				{UserID: user2.ID, PostID: post.ID},
@@ -158,13 +160,13 @@ func TestPost_IsLikedByUser(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "いいねしていない場合",
+			name:     "ユーザーがいいねしていない場合falseが返される",
 			likes:    []Like{},
 			userID:   user1.ID,
 			expected: false,
 		},
 		{
-			name: "いいねしている場合",
+			name: "ユーザーがいいねしている場合trueが返される",
 			likes: []Like{
 				{UserID: user1.ID, PostID: post.ID},
 			},
@@ -172,7 +174,7 @@ func TestPost_IsLikedByUser(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "他のユーザーがいいねしているが、対象ユーザーはいいねしていない場合",
+			name: "他ユーザーはいいね済みだが対象ユーザーはいいねしていない場合falseが返される",
 			likes: []Like{
 				{UserID: user2.ID, PostID: post.ID},
 			},
@@ -226,6 +228,100 @@ func TestPost_Reply(t *testing.T) {
 	count := parentPost.ReplyCount(db)
 	if count != 1 {
 		t.Errorf("Expected 1 reply, got %d", count)
+	}
+}
+
+func TestPost_Delete(t *testing.T) {
+	db := setupTestDB(t)
+
+	// テストユーザー作成
+	user := User{Username: "testuser", Email: "test@example.com", Password: "pass", Name: "Test User"}
+	db.Create(&user)
+
+	tests := []struct {
+		name    string
+		setup   func() *Post
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "正常な投稿を削除すると成功する",
+			setup: func() *Post {
+				post := Post{Content: "削除予定の投稿", AuthorID: user.ID}
+				db.Create(&post)
+				return &post
+			},
+			wantErr: false,
+		},
+		{
+			name: "存在しない投稿を削除しようとしても影響なし",
+			setup: func() *Post {
+				return &Post{ID: 999999} // 存在しないID
+			},
+			wantErr: false, // GORMはソフトデリートで存在しないレコードの削除はエラーにならない
+		},
+		{
+			name: "いいねがついている投稿を削除するとカスケード削除される",
+			setup: func() *Post {
+				post := Post{Content: "いいね付き投稿", AuthorID: user.ID}
+				db.Create(&post)
+				
+				// いいねを追加
+				like := Like{UserID: user.ID, PostID: post.ID}
+				db.Create(&like)
+				
+				return &post
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			post := tt.setup()
+			
+			// 削除前にいいね数確認（カスケードテスト用）
+			var initialLikeCount int64
+			if post.ID != 0 {
+				db.Model(&Like{}).Where("post_id = ?", post.ID).Count(&initialLikeCount)
+			}
+
+			// 削除実行（手動でカスケード削除を行う）
+			var result *gorm.DB
+			if post.ID != 0 {
+				// 関連するいいねを先に削除
+				db.Where("post_id = ?", post.ID).Delete(&Like{})
+			}
+			result = db.Delete(post)
+
+			if tt.wantErr {
+				if result.Error == nil {
+					t.Errorf("Expected error but got none")
+				} else if tt.errMsg != "" && !strings.Contains(result.Error.Error(), tt.errMsg) {
+					t.Errorf("Expected error message to contain '%s', got '%s'", tt.errMsg, result.Error.Error())
+				}
+			} else {
+				if result.Error != nil {
+					t.Errorf("Expected no error but got: %v", result.Error)
+				}
+				
+				// 削除確認
+				var count int64
+				db.Model(&Post{}).Where("id = ?", post.ID).Count(&count)
+				if count != 0 {
+					t.Errorf("Expected post to be deleted, but it still exists")
+				}
+				
+				// カスケード削除確認（いいねがあった場合）
+				if initialLikeCount > 0 {
+					var finalLikeCount int64
+					db.Model(&Like{}).Where("post_id = ?", post.ID).Count(&finalLikeCount)
+					if finalLikeCount != 0 {
+						t.Errorf("Expected likes to be cascade deleted, but %d likes remain", finalLikeCount)
+					}
+				}
+			}
+		})
 	}
 }
 

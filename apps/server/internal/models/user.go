@@ -2,8 +2,13 @@ package models
 
 import (
 	"errors"
-	"gorm.io/gorm"
+	"html"
+	"regexp"
+	"strings"
 	"time"
+	"unicode/utf8"
+
+	"gorm.io/gorm"
 )
 
 type User struct {
@@ -48,14 +53,89 @@ func (u *User) PostCount(db *gorm.DB) int64 {
 
 // バリデーション
 func (u *User) BeforeCreate(tx *gorm.DB) error {
-	if u.Username == "" {
+	// 必須フィールドチェック
+	if strings.TrimSpace(u.Username) == "" {
 		return errors.New("username is required")
 	}
-	if u.Email == "" {
+	if strings.TrimSpace(u.Email) == "" {
 		return errors.New("email is required")
 	}
-	if u.Name == "" {
+	if strings.TrimSpace(u.Name) == "" {
 		return errors.New("name is required")
 	}
+
+	// ユーザー名のバリデーション
+	if err := u.validateUsername(); err != nil {
+		return err
+	}
+
+	// メールアドレスのバリデーション
+	if err := u.validateEmail(); err != nil {
+		return err
+	}
+
+	// 名前のバリデーション
+	if err := u.validateName(); err != nil {
+		return err
+	}
+
+	// XSS対策：HTMLエスケープ
+	u.sanitizeFields()
+
 	return nil
+}
+
+// ユーザー名バリデーション
+func (u *User) validateUsername() error {
+	username := strings.TrimSpace(u.Username)
+
+	// 長さチェック
+	if utf8.RuneCountInString(username) < 2 {
+		return errors.New("username must be at least 2 characters")
+	}
+	if utf8.RuneCountInString(username) > 50 {
+		return errors.New("username must be at most 50 characters")
+	}
+
+	// 特殊文字チェック（英数字、日本語文字、アンダースコア、ハイフンのみ許可）
+	// Unicode文字に対応するためより包括的なパターンを使用
+	validUsername := regexp.MustCompile(`^[a-zA-Z0-9\p{L}\p{N}_-]+$`)
+	if !validUsername.MatchString(username) {
+		return errors.New("username contains invalid characters")
+	}
+
+	return nil
+}
+
+// メールアドレスバリデーション
+func (u *User) validateEmail() error {
+	email := strings.TrimSpace(u.Email)
+
+	// 基本的なメール形式チェック
+	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+	if !emailRegex.MatchString(email) {
+		return errors.New("invalid email format")
+	}
+
+	return nil
+}
+
+// 名前バリデーション
+func (u *User) validateName() error {
+	name := strings.TrimSpace(u.Name)
+
+	// 長さチェック
+	if utf8.RuneCountInString(name) > 100 {
+		return errors.New("name must be at most 100 characters")
+	}
+
+	return nil
+}
+
+// XSS対策とフィールドサニタイズ
+func (u *User) sanitizeFields() {
+	u.Username = strings.TrimSpace(u.Username)
+	u.Email = strings.TrimSpace(strings.ToLower(u.Email))
+	u.Name = html.EscapeString(strings.TrimSpace(u.Name))
+	u.Bio = html.EscapeString(strings.TrimSpace(u.Bio))
 }

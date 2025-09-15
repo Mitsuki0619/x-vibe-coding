@@ -33,7 +33,7 @@ func TestLike_Creation(t *testing.T) {
 		errMsg  string
 	}{
 		{
-			name: "有効ないいねの作成",
+			name: "正常なデータでいいね作成すると成功する",
 			like: Like{
 				UserID: user.ID,
 				PostID: post.ID,
@@ -41,7 +41,7 @@ func TestLike_Creation(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "UserIDが0の場合はエラー",
+			name: "UserIDが0の場合エラーが発生する",
 			like: Like{
 				UserID: 0,
 				PostID: post.ID,
@@ -49,7 +49,7 @@ func TestLike_Creation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "PostIDが0の場合はエラー",
+			name: "PostIDが0の場合エラーが発生する",
 			like: Like{
 				UserID: user.ID,
 				PostID: 0,
@@ -183,47 +183,175 @@ func TestLike_Relations(t *testing.T) {
 func TestLike_DeleteCascade(t *testing.T) {
 	db := setupTestDB(t)
 
-	// テスト用ユーザーと投稿を作成
-	user := &User{
-		Username: "testuser",
-		Email:    "test@example.com",
-		Password: "password",
-		Name:     "Test User",
-	}
-	if err := db.Create(user).Error; err != nil {
-		t.Fatalf("テスト用ユーザー作成に失敗: %v", err)
-	}
+	t.Run("ユーザー削除時にいいねがカスケード削除される", func(t *testing.T) {
+		// テスト用ユーザーと投稿を作成
+		user := &User{
+			Username: "cascadeuser",
+			Email:    "cascade@example.com",
+			Password: "password",
+			Name:     "Cascade User",
+		}
+		if err := db.Create(user).Error; err != nil {
+			t.Fatalf("テスト用ユーザー作成に失敗: %v", err)
+		}
 
-	post := &Post{
-		Content:  "Test post content",
-		AuthorID: user.ID,
-	}
-	if err := db.Create(post).Error; err != nil {
-		t.Fatalf("テスト用投稿作成に失敗: %v", err)
-	}
+		otherUser := &User{
+			Username: "otheruser",
+			Email:    "other@example.com",
+			Password: "password",
+			Name:     "Other User",
+		}
+		if err := db.Create(otherUser).Error; err != nil {
+			t.Fatalf("テスト用ユーザー作成に失敗: %v", err)
+		}
 
-	// いいねを作成
-	like := Like{
-		UserID: user.ID,
-		PostID: post.ID,
-	}
-	err := db.Create(&like).Error
-	if err != nil {
-		t.Fatalf("いいね作成に失敗: %v", err)
-	}
+		post := &Post{
+			Content:  "Cascade test post",
+			AuthorID: otherUser.ID,
+		}
+		if err := db.Create(post).Error; err != nil {
+			t.Fatalf("テスト用投稿作成に失敗: %v", err)
+		}
 
-	// 投稿を削除
-	err = db.Delete(&post).Error
-	if err != nil {
-		t.Fatalf("投稿削除に失敗: %v", err)
-	}
+		// いいねを作成
+		like := &Like{
+			UserID: user.ID,
+			PostID: post.ID,
+		}
+		if err := db.Create(like).Error; err != nil {
+			t.Fatalf("いいね作成に失敗: %v", err)
+		}
 
-	// いいねが残っているかチェック（外部キー制約によっては削除される場合もある）
-	var likeCount int64
-	db.Model(&Like{}).Where("post_id = ?", post.ID).Count(&likeCount)
+		// いいね数を確認（作成後）
+		var likeCount int64
+		db.Model(&Like{}).Where("user_id = ?", user.ID).Count(&likeCount)
+		if likeCount != 1 {
+			t.Errorf("Expected 1 like, got %d", likeCount)
+		}
 
-	// NOTE: このテストは外部キー制約の設定によって結果が変わる
-	// 現在の実装では外部キー制約にON DELETE CASCADEが設定されていないため、
-	// いいねは残る可能性がある
-	t.Logf("投稿削除後のいいね数: %d", likeCount)
+		// ユーザーを物理削除（ソフトデリートではなく実削除）
+		if err := db.Unscoped().Delete(user).Error; err != nil {
+			t.Fatalf("ユーザー削除に失敗: %v", err)
+		}
+
+		// いいね数を確認（ユーザー削除後）- カスケード削除される必要がある
+		db.Model(&Like{}).Where("user_id = ?", user.ID).Count(&likeCount)
+		if likeCount != 0 {
+			t.Errorf("Expected 0 likes after user deletion (cascade), got %d", likeCount)
+		}
+	})
+
+	t.Run("投稿削除時にいいねがカスケード削除される", func(t *testing.T) {
+		// テスト用ユーザーと投稿を作成
+		user := &User{
+			Username: "postdeleteuser",
+			Email:    "postdelete@example.com",
+			Password: "password",
+			Name:     "Post Delete User",
+		}
+		if err := db.Create(user).Error; err != nil {
+			t.Fatalf("テスト用ユーザー作成に失敗: %v", err)
+		}
+
+		post := &Post{
+			Content:  "Post delete test",
+			AuthorID: user.ID,
+		}
+		if err := db.Create(post).Error; err != nil {
+			t.Fatalf("テスト用投稿作成に失敗: %v", err)
+		}
+
+		// いいねを作成
+		like := &Like{
+			UserID: user.ID,
+			PostID: post.ID,
+		}
+		if err := db.Create(like).Error; err != nil {
+			t.Fatalf("いいね作成に失敗: %v", err)
+		}
+
+		// いいね数を確認（作成後）
+		var likeCount int64
+		db.Model(&Like{}).Where("post_id = ?", post.ID).Count(&likeCount)
+		if likeCount != 1 {
+			t.Errorf("Expected 1 like, got %d", likeCount)
+		}
+
+		// 投稿を物理削除（ソフトデリートではなく実削除）
+		if err := db.Unscoped().Delete(post).Error; err != nil {
+			t.Fatalf("投稿削除に失敗: %v", err)
+		}
+
+		// いいね数を確認（投稿削除後）- カスケード削除される必要がある
+		db.Model(&Like{}).Where("post_id = ?", post.ID).Count(&likeCount)
+		if likeCount != 0 {
+			t.Errorf("Expected 0 likes after post deletion (cascade), got %d", likeCount)
+		}
+	})
+
+	t.Run("複数のいいねがある場合のカスケード削除", func(t *testing.T) {
+		// テスト用ユーザーと投稿を作成
+		user1 := &User{
+			Username: "multiuser1",
+			Email:    "multi1@example.com",
+			Password: "password",
+			Name:     "Multi User 1",
+		}
+		if err := db.Create(user1).Error; err != nil {
+			t.Fatalf("テスト用ユーザー作成に失敗: %v", err)
+		}
+
+		user2 := &User{
+			Username: "multiuser2",
+			Email:    "multi2@example.com",
+			Password: "password",
+			Name:     "Multi User 2",
+		}
+		if err := db.Create(user2).Error; err != nil {
+			t.Fatalf("テスト用ユーザー作成に失敗: %v", err)
+		}
+
+		post := &Post{
+			Content:  "Multi like test post",
+			AuthorID: user1.ID,
+		}
+		if err := db.Create(post).Error; err != nil {
+			t.Fatalf("テスト用投稿作成に失敗: %v", err)
+		}
+
+		// 複数のいいねを作成
+		like1 := &Like{
+			UserID: user1.ID,
+			PostID: post.ID,
+		}
+		if err := db.Create(like1).Error; err != nil {
+			t.Fatalf("いいね1作成に失敗: %v", err)
+		}
+
+		like2 := &Like{
+			UserID: user2.ID,
+			PostID: post.ID,
+		}
+		if err := db.Create(like2).Error; err != nil {
+			t.Fatalf("いいね2作成に失敗: %v", err)
+		}
+
+		// 全いいね数を確認
+		var totalLikes int64
+		db.Model(&Like{}).Where("post_id = ?", post.ID).Count(&totalLikes)
+		if totalLikes != 2 {
+			t.Errorf("Expected 2 likes, got %d", totalLikes)
+		}
+
+		// 投稿を物理削除（ソフトデリートではなく実削除）
+		if err := db.Unscoped().Delete(post).Error; err != nil {
+			t.Fatalf("投稿削除に失敗: %v", err)
+		}
+
+		// すべてのいいねがカスケード削除される必要がある
+		db.Model(&Like{}).Where("post_id = ?", post.ID).Count(&totalLikes)
+		if totalLikes != 0 {
+			t.Errorf("Expected 0 likes after post deletion (cascade), got %d", totalLikes)
+		}
+	})
 }

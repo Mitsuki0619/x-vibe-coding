@@ -19,7 +19,7 @@ func TestFollow_Creation(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "有効なフォロー関係の作成",
+			name: "正常なデータでフォロー関係作成すると成功する",
 			follow: Follow{
 				FollowerID: user1.ID,
 				FolloweeID: user2.ID,
@@ -27,7 +27,7 @@ func TestFollow_Creation(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "自分自身をフォローしようとした場合はエラー",
+			name: "自分自身をフォローしようとするとエラーが発生する",
 			follow: Follow{
 				FollowerID: user1.ID,
 				FolloweeID: user1.ID,
@@ -35,7 +35,7 @@ func TestFollow_Creation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "フォロワーIDが0の場合はエラー",
+			name: "フォロワーIDが0の場合エラーが発生する",
 			follow: Follow{
 				FollowerID: 0,
 				FolloweeID: user2.ID,
@@ -43,7 +43,7 @@ func TestFollow_Creation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "フォロウィーIDが0の場合はエラー",
+			name: "フォロウィーIDが0の場合エラーが発生する",
 			follow: Follow{
 				FollowerID: user1.ID,
 				FolloweeID: 0,
@@ -79,7 +79,7 @@ func TestFollow_IsValid(t *testing.T) {
 		expected bool
 	}{
 		{
-			name: "有効なフォロー関係",
+			name: "異なるユーザー間のフォロー関係は有効と判定される",
 			follow: Follow{
 				FollowerID: 1,
 				FolloweeID: 2,
@@ -87,7 +87,7 @@ func TestFollow_IsValid(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "無効なフォロー関係（自分自身）",
+			name: "同一ユーザーのフォロー関係は無効と判定される",
 			follow: Follow{
 				FollowerID: 1,
 				FolloweeID: 1,

@@ -2,9 +2,11 @@ package models
 
 import (
 	"errors"
-	"gorm.io/gorm"
+	"html"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type Post struct {
@@ -46,12 +48,18 @@ func (p *Post) IsLikedByUser(db *gorm.DB, userID uint) bool {
 
 // バリデーション
 func (p *Post) BeforeCreate(tx *gorm.DB) error {
+	// 内容をトリムしてサニタイズ
+	p.Content = strings.TrimSpace(p.Content)
+
 	// 内容が空でないかチェック
-	if strings.TrimSpace(p.Content) == "" {
+	if p.Content == "" {
 		return errors.New("content cannot be empty")
 	}
 
-	// 280文字制限チェック
+	// XSS対策：HTMLエスケープ
+	p.Content = html.EscapeString(p.Content)
+
+	// 280文字制限チェック（サニタイズ後）
 	if len([]rune(p.Content)) > 280 {
 		return errors.New("content exceeds 280 characters")
 	}

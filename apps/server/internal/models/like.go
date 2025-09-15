@@ -7,15 +7,18 @@ import (
 	"gorm.io/gorm"
 )
 
+// Like はユーザーが投稿に付けた「いいね」を表すモデル
+// ユーザーまたは投稿が削除されると、関連するいいねも自動的に削除されます（CASCADE）
 type Like struct {
 	ID        uint      `json:"id" gorm:"primaryKey"`
 	UserID    uint      `json:"userId" gorm:"not null;uniqueIndex:idx_user_post"`
 	PostID    uint      `json:"postId" gorm:"not null;uniqueIndex:idx_user_post"`
 	CreatedAt time.Time `json:"createdAt"`
 
-	// リレーション
-	User User `json:"user" gorm:"foreignKey:UserID"`
-	Post Post `json:"post" gorm:"foreignKey:PostID"`
+	// リレーション - カスケード削除制約付き
+	// 参照先のユーザーまたは投稿が削除されると、このいいねも自動的に削除される
+	User User `json:"user" gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE,OnUpdate:CASCADE"`
+	Post Post `json:"post" gorm:"foreignKey:PostID;constraint:OnDelete:CASCADE,OnUpdate:CASCADE"`
 }
 
 // 複合ユニークキー（同じユーザーが同じ投稿に複数回いいねできないように）
